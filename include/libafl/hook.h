@@ -101,6 +101,7 @@ struct libafl_rw_hook {
     void (*execN)(uint64_t data, uint64_t id, target_ulong addr, size_t size);*/
     uint64_t data;
     size_t num;
+    TCGHelperInfo helper_info_pre;
     TCGHelperInfo helper_info1;
     TCGHelperInfo helper_info2;
     TCGHelperInfo helper_info4;
@@ -117,6 +118,7 @@ extern struct libafl_rw_hook* libafl_read_hooks;
 extern struct libafl_rw_hook* libafl_write_hooks;
 
 size_t libafl_add_read_hook(uint64_t (*gen)(uint64_t data, target_ulong pc, TCGTemp *addr, MemOpIdx oi),
+                            void (*exec_pre)(uint64_t data, uint64_t id, target_ulong addr, target_ulong pc),
                              void (*exec1)(uint64_t data, uint64_t id, target_ulong addr),
                              void (*exec2)(uint64_t data, uint64_t id, target_ulong addr),
                              void (*exec4)(uint64_t data, uint64_t id, target_ulong addr),
@@ -124,6 +126,7 @@ size_t libafl_add_read_hook(uint64_t (*gen)(uint64_t data, target_ulong pc, TCGT
                              void (*execN)(uint64_t data, uint64_t id, target_ulong addr, size_t size),
                              uint64_t data);
 size_t libafl_add_write_hook(uint64_t (*gen)(uint64_t data, target_ulong pc, TCGTemp *addr, MemOpIdx oi),
+                             void (*exec_pre)(uint64_t data, uint64_t id, target_ulong addr, target_ulong pc),
                              void (*exec1)(uint64_t data, uint64_t id, target_ulong addr),
                              void (*exec2)(uint64_t data, uint64_t id, target_ulong addr),
                              void (*exec4)(uint64_t data, uint64_t id, target_ulong addr),
@@ -136,6 +139,8 @@ int libafl_qemu_remove_write_hook(size_t num, int invalidate);
 
 void libafl_gen_read(TCGTemp *addr, MemOpIdx oi);
 void libafl_gen_write(TCGTemp *addr, MemOpIdx oi);
+void libafl_gen_read_pre(TCGTemp *addr, MemOpIdx oi);
+void libafl_gen_write_pre(TCGTemp *addr, MemOpIdx oi);
 
 struct libafl_cmp_hook {
     uint64_t (*gen)(uint64_t data, target_ulong pc, size_t size);
