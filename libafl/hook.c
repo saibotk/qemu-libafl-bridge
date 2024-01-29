@@ -286,6 +286,11 @@ bool libafl_qemu_block_hook_set_jit(size_t num, size_t (*jit)(uint64_t data, uin
     return false;
 }
 
+static TCGHelperInfo libafl_exec_pre_read_hook_info = {
+    .func = NULL, .name = "libafl_exec_pre_read_hook",
+    .flags = dh_callflag(void),
+    .typemask = dh_typemask(void, 0) | dh_typemask(i64, 1) | dh_typemask(i64, 2) | dh_typemask(tl, 3) | dh_typemask(tl, 4)
+};
 static TCGHelperInfo libafl_exec_read_hook1_info = {
     .func = NULL, .name = "libafl_exec_read_hook1",
     .flags = dh_callflag(void),
@@ -311,6 +316,12 @@ static TCGHelperInfo libafl_exec_read_hookN_info = {
     .flags = dh_callflag(void),
     .typemask = dh_typemask(void, 0) | dh_typemask(i64, 1) | dh_typemask(i64, 2)
                 | dh_typemask(tl, 3) | dh_typemask(i64, 4)
+};
+
+static TCGHelperInfo libafl_exec_pre_write_hook_info = {
+    .func = NULL, .name = "libafl_exec_pre_write_hook",
+    .flags = dh_callflag(void),
+    .typemask = dh_typemask(void, 0) | dh_typemask(i64, 1) | dh_typemask(i64, 2) | dh_typemask(tl, 3) | dh_typemask(tl, 4)
 };
 static TCGHelperInfo libafl_exec_write_hook1_info = {
     .func = NULL, .name = "libafl_exec_write_hook1",
@@ -343,6 +354,7 @@ struct libafl_rw_hook* libafl_read_hooks;
 size_t libafl_read_hooks_num = 0;
 
 size_t libafl_add_read_hook(uint64_t (*gen)(uint64_t data, target_ulong pc, TCGTemp *addr, MemOpIdx oi),
+                            void (*exec_pre)(uint64_t data, uint64_t id, target_ulong addr, target_ulong pc),
                             void (*exec1)(uint64_t data, uint64_t id, target_ulong addr),
                             void (*exec2)(uint64_t data, uint64_t id, target_ulong addr),
                             void (*exec4)(uint64_t data, uint64_t id, target_ulong addr),
@@ -367,6 +379,10 @@ size_t libafl_add_read_hook(uint64_t (*gen)(uint64_t data, target_ulong pc, TCGT
     hook->next = libafl_read_hooks;
     libafl_read_hooks = hook;
 
+    if (exec_pre) {
+        memcpy(&hook->helper_info_pre, &libafl_exec_pre_read_hook_info, sizeof(TCGHelperInfo));
+        hook->helper_info_pre.func = exec_pre;
+    }
     if (exec1) {
         memcpy(&hook->helper_info1, &libafl_exec_read_hook1_info, sizeof(TCGHelperInfo));
         hook->helper_info1.func = exec1;
@@ -397,6 +413,7 @@ struct libafl_rw_hook* libafl_write_hooks;
 size_t libafl_write_hooks_num = 0;
 
 size_t libafl_add_write_hook(uint64_t (*gen)(uint64_t data, target_ulong pc, TCGTemp *addr, MemOpIdx oi),
+                             void (*exec_pre)(uint64_t data, uint64_t id, target_ulong addr, target_ulong pc),
                              void (*exec1)(uint64_t data, uint64_t id, target_ulong addr),
                              void (*exec2)(uint64_t data, uint64_t id, target_ulong addr),
                              void (*exec4)(uint64_t data, uint64_t id, target_ulong addr),
@@ -421,6 +438,10 @@ size_t libafl_add_write_hook(uint64_t (*gen)(uint64_t data, target_ulong pc, TCG
     hook->next = libafl_write_hooks;
     libafl_write_hooks = hook;
 
+    if (exec_pre) {
+        memcpy(&hook->helper_info_pre, &libafl_exec_pre_write_hook_info, sizeof(TCGHelperInfo));
+        hook->helper_info_pre.func = exec_pre;
+    }
     if (exec1) {
         memcpy(&hook->helper_info1, &libafl_exec_write_hook1_info, sizeof(TCGHelperInfo));
         hook->helper_info1.func = exec1;
@@ -496,9 +517,61 @@ static void libafl_gen_rw(TCGTemp *addr, MemOpIdx oi, struct libafl_rw_hook* hoo
     }
 }
 
+static void libafl_gen_rw_pre(TCGTemp *addr, MemOpIdx oi, struct libafl_rw_hook *hook)
+{
+    while (hook)
+    {
+        TCGHelperInfo *info = NULL;
+
+        if (hook->helper_info_pre.func)
+        {
+            info = &hook->helper_info_pre;
+        }
+        else
+        {
+            hook = hook->next;
+            continue;
+        }
+
+        uint64_t cur_id = 0;
+        if (hook->gen)
+        {
+            // TODO: Check if it is okay to call gen 2 times, does anything depend on this?
+            // Can it be useful to have the same id for pre and post hooks?
+            cur_id = hook->gen(hook->data, libafl_gen_cur_pc, addr, oi);
+        }
+
+        if (cur_id != (uint64_t)-1)
+        {
+            TCGv_i64 tmp0 = tcg_constant_i64(hook->data);
+            TCGv_i64 tmp1 = tcg_constant_i64(cur_id);
+            TCGv_i64 tmp2 = tcg_constant_i64(libafl_gen_cur_pc);
+            TCGTemp *tmp3[4] = {tcgv_i64_temp(tmp0),
+                                tcgv_i64_temp(tmp1),
+                                addr,
+                                tcgv_i64_temp(tmp2)};
+            tcg_gen_callN(info, NULL, tmp3);
+            tcg_temp_free_i64(tmp0);
+            tcg_temp_free_i64(tmp1);
+            tcg_temp_free_i64(tmp2);
+        }
+        hook = hook->next;
+    }
+}
+
+void libafl_gen_read_pre(TCGTemp *addr, MemOpIdx oi)
+{
+    libafl_gen_rw_pre(addr, oi, libafl_read_hooks);
+}
+
 void libafl_gen_read(TCGTemp *addr, MemOpIdx oi)
 {
     libafl_gen_rw(addr, oi, libafl_read_hooks);
+}
+
+void libafl_gen_write_pre(TCGTemp *addr, MemOpIdx oi)
+{
+    libafl_gen_rw_pre(addr, oi, libafl_write_hooks);
 }
 
 void libafl_gen_write(TCGTemp *addr, MemOpIdx oi)
