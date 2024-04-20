@@ -167,6 +167,14 @@ void translator_loop(CPUState *cpu, TranslationBlock *tb, int *max_insns,
         }
 
         //// --- Begin LibAFL code ---
+        if (libafl_translate_gen_hooks) {
+            // TODO: potentially optimize by hooking only specific PCs might improve performance
+            struct libafl_translate_gen_hook* h = libafl_translate_gen_hooks;
+            while (h) {
+                h->callback(h->data, &db->pc_next);
+                h = h->next;
+            }
+        }
 
         struct libafl_hook* hk = libafl_search_instruction_hook(db->pc_next);
         if (hk) {

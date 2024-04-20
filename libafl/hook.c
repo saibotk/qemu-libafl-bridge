@@ -761,6 +761,25 @@ size_t libafl_add_new_thread_hook(bool (*callback)(uint64_t data, uint32_t tid),
 
 GEN_REMOVE_HOOK1(new_thread)
 
+struct libafl_translate_gen_hook *libafl_translate_gen_hooks;
+size_t libafl_translate_gen_hooks_num = 0;
+
+size_t libafl_add_translate_gen_hook(void (*callback)(uint64_t data, vaddr *pc),
+                                  uint64_t data)
+{
+    struct libafl_translate_gen_hook *hook = calloc(sizeof(struct libafl_translate_gen_hook), 1);
+    hook->callback = callback;
+    hook->data = data;
+    hook->num = libafl_translate_gen_hooks_num++;
+    hook->next = libafl_translate_gen_hooks;
+    libafl_translate_gen_hooks = hook;
+
+    return hook->num;
+}
+
+GEN_REMOVE_HOOK1(translate_gen)
+
+
 #if TARGET_LONG_BITS == 32
 #define SHADOW_BASE (0x20000000)
 #elif TARGET_LONG_BITS == 64

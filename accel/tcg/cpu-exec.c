@@ -42,6 +42,12 @@
 #include "internal-common.h"
 #include "internal-target.h"
 
+//// --- Begin LibAFL code ---
+
+#include "libafl/hook.h"
+
+//// --- End LibAFL code ---
+
 /* -icount align implementation. */
 
 typedef struct SyncClocks {
@@ -570,6 +576,31 @@ void cpu_exec_step_atomic(CPUState *cpu)
         g_assert(!cpu->running);
         cpu->running = true;
 
+        //// --- Begin LibAFL code ---
+        
+        // We need to check this here too, for cases where the PC to be
+        // manipulated is the start PC for a new TB
+        // Note: The actual pc variable is being set in the cpu_get_tb_cpu_state function
+        // based on the CPU state. But some architectures like XTENSA do have some special
+        // initialization based on the PC value. So we need to manipulate this value here.
+        if (libafl_translate_gen_hooks) {
+            CPUClass *cc = cpu->cc;
+            vaddr old_pc = cc->get_pc(cpu);
+            vaddr new_pc = old_pc;
+
+            struct libafl_translate_gen_hook* h = libafl_translate_gen_hooks;
+            while (h) {
+                h->callback(h->data, &new_pc);
+                h = h->next;
+            }
+
+            if (old_pc != new_pc) {
+                // Sync the new PC with the CPU state
+                cc->set_pc(cpu, new_pc);
+            }
+        }
+        //// --- End LibAFL code ---
+
         cpu_get_tb_cpu_state(env, &pc, &cs_base, &flags);
 
         cflags = curr_cflags(cpu);
@@ -960,14 +991,6 @@ static inline void cpu_loop_exec_tb(CPUState *cpu, TranslationBlock *tb,
 #endif
 }
 
-//// --- Begin LibAFL code ---
-
-TranslationBlock *libafl_gen_edge(CPUState *cpu, target_ulong src_block,
-                                  target_ulong dst_block, int exit_n, target_ulong cs_base,
-                                  uint32_t flags, int cflags);
-
-//// --- End LibAFL code ---
-
 /* main execution loop */
 
 static int __attribute__((noinline))
@@ -985,6 +1008,31 @@ cpu_exec_loop(CPUState *cpu, SyncClocks *sc)
             vaddr pc;
             uint64_t cs_base;
             uint32_t flags, cflags;
+
+            //// --- Begin LibAFL code ---
+
+            // We need to check this here too, for cases where the PC to be
+            // manipulated is the start PC for a new TB
+            // Note: The actual pc variable is being set in the cpu_get_tb_cpu_state function
+            // based on the CPU state. But some architectures like XTENSA do have some special
+            // initialization based on the PC value. So we need to manipulate this value here.
+            if (libafl_translate_gen_hooks) {
+                CPUClass *cc = cpu->cc;
+                vaddr old_pc = cc->get_pc(cpu);
+                vaddr new_pc = old_pc;
+
+                struct libafl_translate_gen_hook* h = libafl_translate_gen_hooks;
+                while (h) {
+                    h->callback(h->data, &new_pc);
+                    h = h->next;
+                }
+
+                if (old_pc != new_pc) {
+                    // Sync the new PC with the CPU state
+                    cc->set_pc(cpu, new_pc);
+                }
+            }
+            //// --- End LibAFL code ---
 
             cpu_get_tb_cpu_state(cpu_env(cpu), &pc, &cs_base, &flags);
 
