@@ -42,6 +42,12 @@
 #include "internal-common.h"
 #include "internal-target.h"
 
+//// --- Begin LibAFL code ---
+
+#include "libafl/hook.h"
+
+//// --- End LibAFL code ---
+
 /* -icount align implementation. */
 
 typedef struct SyncClocks {
@@ -572,6 +578,22 @@ void cpu_exec_step_atomic(CPUState *cpu)
 
         cpu_get_tb_cpu_state(env, &pc, &cs_base, &flags);
 
+        //// --- Begin LibAFL code ---
+        // TODO: the function above does add some calculations for base addresses etc based on the PC
+        // Check if this impacts the functionality (e.g. for xtensa platforms), in general we sadly cannot
+        // independently control the pc that is currently executed for all cpu architectures :(
+
+        // We need to check this here too, for cases where the PC to be
+        // manipulated is the start PC for a new TB
+        if (libafl_translate_gen_hooks) {
+            struct libafl_translate_gen_hook* h = libafl_translate_gen_hooks;
+            while (h) {
+                h->callback(h->data, &pc);
+                h = h->next;
+            }
+        }
+        //// --- End LibAFL code ---
+
         cflags = curr_cflags(cpu);
         /* Execute in a serial context. */
         cflags &= ~CF_PARALLEL;
@@ -960,14 +982,6 @@ static inline void cpu_loop_exec_tb(CPUState *cpu, TranslationBlock *tb,
 #endif
 }
 
-//// --- Begin LibAFL code ---
-
-TranslationBlock *libafl_gen_edge(CPUState *cpu, target_ulong src_block,
-                                  target_ulong dst_block, int exit_n, target_ulong cs_base,
-                                  uint32_t flags, int cflags);
-
-//// --- End LibAFL code ---
-
 /* main execution loop */
 
 static int __attribute__((noinline))
@@ -987,6 +1001,22 @@ cpu_exec_loop(CPUState *cpu, SyncClocks *sc)
             uint32_t flags, cflags;
 
             cpu_get_tb_cpu_state(cpu_env(cpu), &pc, &cs_base, &flags);
+
+            //// --- Begin LibAFL code ---
+            // TODO: the function above does add some calculations for base addresses etc based on the PC
+            // Check if this impacts the functionality (e.g. for xtensa platforms), in general we sadly cannot
+            // independently control the pc that is currently executed for all cpu architectures :(
+
+            // We need to check this here too, for cases where the PC to be
+            // manipulated is the start PC for a new TB
+            if (libafl_translate_gen_hooks) {
+                struct libafl_translate_gen_hook* h = libafl_translate_gen_hooks;
+                while (h) {
+                    h->callback(h->data, &pc);
+                    h = h->next;
+                }
+            }
+            //// --- End LibAFL code ---
 
             /*
              * When requested, use an exact setting for cflags for the next

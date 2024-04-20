@@ -228,4 +228,18 @@ size_t libafl_add_new_thread_hook(bool (*callback)(uint64_t data, uint32_t tid),
                                   uint64_t data);
 int libafl_qemu_remove_new_thread_hook(size_t num);
 
+struct libafl_translate_gen_hook
+{
+    void (*callback)(uint64_t data, vaddr *pc);
+    uint64_t data;
+    size_t num;
+    struct libafl_translate_gen_hook *next;
+};
+
+extern struct libafl_translate_gen_hook *libafl_translate_gen_hooks;
+
+size_t libafl_add_translate_gen_hook(void (*callback)(uint64_t data, vaddr *pc),
+                                  uint64_t data);
+int libafl_qemu_remove_translate_gen_hook(size_t num);
+
 void libafl_tcg_gen_asan(TCGTemp * addr, size_t size);
