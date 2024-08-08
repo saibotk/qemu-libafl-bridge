@@ -764,7 +764,7 @@ GEN_REMOVE_HOOK1(new_thread)
 struct libafl_translate_gen_hook *libafl_translate_gen_hooks;
 size_t libafl_translate_gen_hooks_num = 0;
 
-size_t libafl_add_translate_gen_hook(void (*callback)(uint64_t data, vaddr *pc),
+size_t libafl_add_translate_gen_hook(bool (*callback)(uint64_t data, vaddr *pc),
                                   uint64_t data)
 {
     struct libafl_translate_gen_hook *hook = calloc(sizeof(struct libafl_translate_gen_hook), 1);

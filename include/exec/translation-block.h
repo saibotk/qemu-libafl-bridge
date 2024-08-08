@@ -78,6 +78,7 @@ struct TranslationBlock {
 #define CF_NOIRQ         0x00010000 /* Generate an uninterruptible TB */
 #define CF_PCREL         0x00020000 /* Opcodes in TB are PC-relative */
 //// --- Begin LibAFL code ---
+#define CF_IS_TEMP       0x00400000 /* The current TB is temporary and should not be cached */
 #define CF_IS_EDGE       0x00800000 /* The current TB is an edge */
 //// --- End LibAFL code ---
 #define CF_CLUSTER_MASK  0xff000000 /* Top 8 bits are cluster ID */

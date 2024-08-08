@@ -577,6 +577,8 @@ void cpu_exec_step_atomic(CPUState *cpu)
         cpu->running = true;
 
         //// --- Begin LibAFL code ---
+
+        bool libafl_disable_cache = false;
         
         // We need to check this here too, for cases where the PC to be
         // manipulated is the start PC for a new TB
@@ -590,7 +592,7 @@ void cpu_exec_step_atomic(CPUState *cpu)
 
             struct libafl_translate_gen_hook* h = libafl_translate_gen_hooks;
             while (h) {
-                h->callback(h->data, &new_pc);
+                libafl_disable_cache = libafl_disable_cache | h->callback(h->data, &new_pc);
                 h = h->next;
             }
 
@@ -614,6 +616,12 @@ void cpu_exec_step_atomic(CPUState *cpu)
          * of an insn that includes an atomic operation we can't handle.
          * Any breakpoint for this insn will have been recognized earlier.
          */
+
+        //// --- Start LibAFL code ---
+        if (libafl_disable_cache) {
+            cflags |= CF_IS_TEMP;
+        }
+        //// --- End LibAFL code ---
 
         tb = tb_lookup(cpu, pc, cs_base, flags, cflags);
         if (tb == NULL) {
@@ -1009,7 +1017,8 @@ cpu_exec_loop(CPUState *cpu, SyncClocks *sc)
             uint64_t cs_base;
             uint32_t flags, cflags;
 
-            //// --- Begin LibAFL code ---
+//// --- Begin LibAFL code ---
+            bool libafl_disable_cache = false;
 
             // We need to check this here too, for cases where the PC to be
             // manipulated is the start PC for a new TB
@@ -1023,7 +1032,7 @@ cpu_exec_loop(CPUState *cpu, SyncClocks *sc)
 
                 struct libafl_translate_gen_hook* h = libafl_translate_gen_hooks;
                 while (h) {
-                    h->callback(h->data, &new_pc);
+                    libafl_disable_cache = libafl_disable_cache | h->callback(h->data, &new_pc);
                     h = h->next;
                 }
 
@@ -1032,7 +1041,7 @@ cpu_exec_loop(CPUState *cpu, SyncClocks *sc)
                     cc->set_pc(cpu, new_pc);
                 }
             }
-            //// --- End LibAFL code ---
+//// --- End LibAFL code ---
 
             cpu_get_tb_cpu_state(cpu_env(cpu), &pc, &cs_base, &flags);
 
@@ -1054,6 +1063,12 @@ cpu_exec_loop(CPUState *cpu, SyncClocks *sc)
                 break;
             }
 
+//// --- Start LibAFL code ---
+            if (libafl_disable_cache) {
+                cflags |= CF_IS_TEMP;
+            }
+//// --- End LibAFL code ---
+
             tb = tb_lookup(cpu, pc, cs_base, flags, cflags);
             if (tb == NULL) {
                 CPUJumpCache *jc;
@@ -1063,14 +1078,21 @@ cpu_exec_loop(CPUState *cpu, SyncClocks *sc)
                 tb = tb_gen_code(cpu, pc, cs_base, flags, cflags);
                 mmap_unlock();
 
-                /*
-                 * We add the TB in the virtual pc hash table
-                 * for the fast lookup
-                 */
-                h = tb_jmp_cache_hash_func(pc);
-                jc = cpu->tb_jmp_cache;
-                jc->array[h].pc = pc;
-                qatomic_set(&jc->array[h].tb, tb);
+//// --- Start LibAFL code ---
+                // Skip the jump cache for temporary TBs
+                if (!(tb->cflags & CF_IS_TEMP)) {
+//// --- End LibAFL code ---
+                    /*
+                    * We add the TB in the virtual pc hash table
+                    * for the fast lookup
+                    */
+                    h = tb_jmp_cache_hash_func(pc);
+                    jc = cpu->tb_jmp_cache;
+                    jc->array[h].pc = pc;
+                    qatomic_set(&jc->array[h].tb, tb);
+//// --- Start LibAFL code ---
+                }
+//// --- End LibAFL code ---
             }
 
 #ifndef CONFIG_USER_ONLY
@@ -1110,6 +1132,15 @@ cpu_exec_loop(CPUState *cpu, SyncClocks *sc)
                     tb_add_jump(last_tb, tb_exit, tb);
                 }
             }
+
+            // This is mostly to properly disable jumps to / from this TB
+            // Also the edge TB is also indirectly invalidated too.
+            // Note: Most things in there are never even set in the first place,
+            // but it's better to rely on a builtin function for this, for maintainablity.
+            if (tb->cflags & CF_IS_TEMP) {
+                tb_phys_invalidate(tb, -1);
+            }
+            
 
             if (has_libafl_edge) {
                 // execute the edge to make sure to log it the first execution

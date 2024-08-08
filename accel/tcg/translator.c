@@ -168,11 +168,16 @@ void translator_loop(CPUState *cpu, TranslationBlock *tb, int *max_insns,
 
         //// --- Begin LibAFL code ---
         if (libafl_translate_gen_hooks) {
-            // TODO: potentially optimize by hooking only specific PCs might improve performance
+            bool disable_cache = false;
+
             struct libafl_translate_gen_hook* h = libafl_translate_gen_hooks;
             while (h) {
-                h->callback(h->data, &db->pc_next);
+                disable_cache = disable_cache | h->callback(h->data, &db->pc_next);
                 h = h->next;
+            }
+
+            if (disable_cache) {
+                tb->cflags |= CF_IS_TEMP;
             }
         }
 

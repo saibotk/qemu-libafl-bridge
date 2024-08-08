@@ -767,6 +767,15 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
         return tb;
     }
 
+//// --- Begin LibAFL code ---
+    // Make sure to check the TB cflags, to also include communication from the inner translate_gen hook
+    // Because cflags is not passed as a reference, we need to check the tb->cflags
+    if (tb->cflags & CF_IS_TEMP) {
+        tb_unlock_pages(tb);
+        return tb;
+    }
+//// --- End LibAFL code ---
+
     /*
      * Insert TB into the corresponding region tree before publishing it
      * through QHT. Otherwise rewinding happened in the TB might fail to

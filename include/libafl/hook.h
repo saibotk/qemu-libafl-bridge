@@ -230,7 +230,7 @@ int libafl_qemu_remove_new_thread_hook(size_t num);
 
 struct libafl_translate_gen_hook
 {
-    void (*callback)(uint64_t data, vaddr *pc);
+    bool (*callback)(uint64_t data, vaddr *pc);
     uint64_t data;
     size_t num;
     struct libafl_translate_gen_hook *next;
@@ -238,7 +238,7 @@ struct libafl_translate_gen_hook
 
 extern struct libafl_translate_gen_hook *libafl_translate_gen_hooks;
 
-size_t libafl_add_translate_gen_hook(void (*callback)(uint64_t data, vaddr *pc),
+size_t libafl_add_translate_gen_hook(bool (*callback)(uint64_t data, vaddr *pc),
                                   uint64_t data);
 int libafl_qemu_remove_translate_gen_hook(size_t num);
 
