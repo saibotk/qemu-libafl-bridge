@@ -577,7 +577,6 @@ void cpu_exec_step_atomic(CPUState *cpu)
         cpu->running = true;
 
         //// --- Begin LibAFL code ---
-
         bool libafl_disable_cache = false;
         
         // We need to check this here too, for cases where the PC to be
@@ -587,6 +586,7 @@ void cpu_exec_step_atomic(CPUState *cpu)
         // initialization based on the PC value. So we need to manipulate this value here.
         if (libafl_translate_gen_hooks) {
             CPUClass *cc = cpu->cc;
+libafl_translate_gen_start:
             vaddr old_pc = cc->get_pc(cpu);
             vaddr new_pc = old_pc;
 
@@ -599,6 +599,12 @@ void cpu_exec_step_atomic(CPUState *cpu)
             if (old_pc != new_pc) {
                 // Sync the new PC with the CPU state
                 cc->set_pc(cpu, new_pc);
+
+                // Restart the whole process to allow for a correct handling of consecutive faults
+                // NOTE: We keep the caching disable flag from previous iterations, to avoid any
+                // weird cache behavior, even if that might not be necessary in all cases, those
+                // cases are hard to identify/not easy to exhaustively verify and the performance impact is negligible.
+                goto libafl_translate_gen_start;
             }
         }
         //// --- End LibAFL code ---
@@ -1027,6 +1033,7 @@ cpu_exec_loop(CPUState *cpu, SyncClocks *sc)
             // initialization based on the PC value. So we need to manipulate this value here.
             if (libafl_translate_gen_hooks) {
                 CPUClass *cc = cpu->cc;
+libafl_translate_gen_start:
                 vaddr old_pc = cc->get_pc(cpu);
                 vaddr new_pc = old_pc;
 
@@ -1039,6 +1046,12 @@ cpu_exec_loop(CPUState *cpu, SyncClocks *sc)
                 if (old_pc != new_pc) {
                     // Sync the new PC with the CPU state
                     cc->set_pc(cpu, new_pc);
+
+                    // Restart the whole process to allow for a correct handling of consecutive faults
+                    // NOTE: We keep the caching disable flag from previous iterations, to avoid any
+                    // weird cache behavior, even if that might not be necessary in all cases, those
+                    // cases are hard to identify/not easy to exhaustively verify and the performance impact is negligible.
+                    goto libafl_translate_gen_start;
                 }
             }
 //// --- End LibAFL code ---

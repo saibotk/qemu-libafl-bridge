@@ -167,13 +167,26 @@ void translator_loop(CPUState *cpu, TranslationBlock *tb, int *max_insns,
         }
 
         //// --- Begin LibAFL code ---
-        if (libafl_translate_gen_hooks) {
+        // Only call this hook for all following instructions.
+        // Otherwise, we would call it twice for the first instruction, which is already being
+        // handled in the cpu exec loop.
+        if (libafl_translate_gen_hooks && db->num_insns > 1) {
             bool disable_cache = false;
+libafl_translate_gen_inner_start:
+            vaddr old_pc = db->pc_next;
 
             struct libafl_translate_gen_hook* h = libafl_translate_gen_hooks;
             while (h) {
                 disable_cache = disable_cache | h->callback(h->data, &db->pc_next);
                 h = h->next;
+            }
+
+            // Restart the whole process to allow for a correct handling of consecutive faults
+            // NOTE: We keep the caching disable flag from previous iterations, to avoid any
+            // weird cache behavior, even if that might not be necessary in all cases, those
+            // cases are hard to identify/not easy to exhaustively verify and the performance impact is negligible.
+            if (old_pc != db->pc_next) {
+                goto libafl_translate_gen_inner_start;
             }
 
             if (disable_cache) {
