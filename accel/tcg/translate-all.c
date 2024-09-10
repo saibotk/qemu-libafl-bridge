@@ -767,7 +767,17 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
         return tb;
     }
 
+    /*
+     * Insert TB into the corresponding region tree before publishing it
+     * through QHT. Otherwise rewinding happened in the TB might fail to
+     * lookup itself using host PC.
+     */
+    tcg_tb_insert(tb);
+
 //// --- Begin LibAFL code ---
+    // NOTE: This needs to be after tcg_tb_insert to make sure the TB can be recovered, in case of a rewind.
+    // Otherwise, QEMU might crash when trying to recover the TB in cpu_io_recompile.
+    // --- 
     // Make sure to check the TB cflags, to also include communication from the inner translate_gen hook
     // Because cflags is not passed as a reference, we need to check the tb->cflags
     if (tb->cflags & CF_IS_TEMP) {
@@ -775,13 +785,6 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
         return tb;
     }
 //// --- End LibAFL code ---
-
-    /*
-     * Insert TB into the corresponding region tree before publishing it
-     * through QHT. Otherwise rewinding happened in the TB might fail to
-     * lookup itself using host PC.
-     */
-    tcg_tb_insert(tb);
 
     /*
      * No explicit memory barrier is required -- tb_link_page() makes the
