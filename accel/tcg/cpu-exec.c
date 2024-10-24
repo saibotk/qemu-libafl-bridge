@@ -1126,6 +1126,7 @@ libafl_translate_gen_start:
             TranslationBlock *edge;
 
             /* See if we can patch the calling TB. */
+            // Never add a jump to a temporary TB (otherwise we loose control and the TB is executed again)
             if (last_tb) {
                 // tb_add_jump(last_tb, tb_exit, tb);
                 
@@ -1134,20 +1135,22 @@ libafl_translate_gen_start:
                     edge = libafl_gen_edge(cpu, last_tb->pc, pc, tb_exit, cs_base, flags, cflags);
                     mmap_unlock();
 
-                    if (edge) {
-                        tb_add_jump(last_tb, tb_exit, edge);
-                        tb_add_jump(edge, 0, tb);
-                        has_libafl_edge = 1;
-                    } else {
-                        tb_add_jump(last_tb, tb_exit, tb);
-                    }
-                } else {
+                    if (!(tb->cflags & CF_IS_TEMP)) {
+                        if (edge) {
+                            tb_add_jump(last_tb, tb_exit, edge);
+                            tb_add_jump(edge, 0, tb);
+                            has_libafl_edge = 1;
+                        } else {
+                            tb_add_jump(last_tb, tb_exit, tb);
+                        }
+                    }     
+                } else if (!(tb->cflags & CF_IS_TEMP)) {
                     tb_add_jump(last_tb, tb_exit, tb);
                 }
             }
 
-            // This is mostly to properly disable jumps to / from this TB
-            // Also the edge TB is also indirectly invalidated too.
+            // This is mostly to properly disable jumps from this TB, so that
+            // no other TB registers itself as a jump target to this TB.
             // Note: Most things in there are never even set in the first place,
             // but it's better to rely on a builtin function for this, for maintainablity.
             if (tb->cflags & CF_IS_TEMP) {
